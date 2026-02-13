@@ -80,7 +80,13 @@
       align-items: center;
       justify-content: space-between;
     }
-    #news-sidebar .news-header h3 { font-size: 1rem; font-weight: 700; }
+    #news-sidebar .news-header h3 { font-size: 1rem; font-weight: 700; display: flex; align-items: center; gap: 0.5rem; }
+    #news-sidebar .news-header .news-title-icon { flex-shrink: 0; width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; border-radius: 6px; }
+    #news-sidebar .news-header .news-title-icon svg { width: 18px; height: 18px; }
+    #news-sidebar .news-header .news-title-icon img { width: 20px; height: 20px; object-fit: contain; }
+    #news-sidebar .news-header .news-title-icon .resort-icon { width: 28px; height: 28px; min-width: 28px; min-height: 28px; }
+    #news-sidebar .news-header .news-title-icon .resort-icon svg { width: 18px; height: 18px; }
+    #news-sidebar .news-header .news-title-icon .resort-icon img { width: 20px; height: 20px; }
     #news-sidebar .news-close {
       width: 32px; height: 32px;
       border: none;
@@ -131,6 +137,13 @@
     #news-sidebar .news-item a:hover { color: var(--accent-cyan); }
     #news-sidebar .news-item .news-meta { font-size: 0.7rem; color: var(--text-muted); margin-top: 0.35rem; }
     #news-sidebar .news-tweet-preview { font-size: 0.8rem; color: var(--text-muted); margin: 0.4rem 0 0 0; line-height: 1.4; }
+
+    #news-sidebar .news-snow-forecast { display: none; padding-bottom: 1rem; margin-bottom: 1rem; border-bottom: 1px solid var(--border); }
+    #news-sidebar .news-snow-forecast .news-section-title { margin-top: 0; }
+    #news-sidebar .news-snow-forecast .news-snow-days { margin-top: 0.5rem; }
+    #news-sidebar .news-snow-forecast .news-snow-day { display: flex; justify-content: space-between; padding: 0.35rem 0; border-bottom: 1px solid var(--border); font-size: 0.85rem; }
+    #news-sidebar .news-snow-forecast .news-snow-day:last-child { border-bottom: none; }
+    #news-sidebar .news-snow-forecast .news-snow-value { font-family: 'JetBrains Mono', monospace; font-weight: 500; color: var(--accent-cyan); }
 
     #map { flex: 1; background: var(--bg-card); }
 
@@ -375,8 +388,16 @@
     .radar-control .radar-icon { width: 18px; height: 18px; opacity: 0.8; }
 
     @media (max-width: 768px) {
-      .main { flex-direction: column-reverse; }
-      .sidebar { width: 100%; max-height: 50vh; border-left: none; border-top: 1px solid var(--border); }
+      #map { display: none !important; }
+      #news-sidebar .news-snow-forecast { display: block; }
+      .main { flex-direction: column; }
+      .sidebar {
+        width: 100%;
+        flex: 1;
+        max-height: none;
+        border-left: none;
+        border-top: 1px solid var(--border);
+      }
       .resort-list { min-height: 120px; }
     }
   </style>
@@ -391,7 +412,7 @@
     <div class="main">
       <aside id="news-sidebar">
         <div class="news-header">
-          <h3 id="news-sidebar-title">Resort News</h3>
+          <h3><span id="news-sidebar-icon" class="news-title-icon"></span><span id="news-sidebar-title"></span></h3>
           <button class="news-close" id="news-sidebar-close" aria-label="Close">×</button>
         </div>
         <div class="news-content" id="news-sidebar-content"></div>
@@ -442,6 +463,11 @@
     });
 
     L.control.zoom({ position: 'bottomright' }).addTo(map);
+
+    const mobileQuery = window.matchMedia('(max-width: 768px)');
+    mobileQuery.addEventListener('change', () => {
+      if (!mobileQuery.matches) map.invalidateSize();
+    });
 
     let radarLayer = null;
     const RADAR_TILE_SIZE = (typeof window !== 'undefined' && window.devicePixelRatio >= 2) ? 512 : 256;
@@ -593,11 +619,12 @@
 
     function getFilteredResorts() {
       const state = document.getElementById('state-select').value;
+      if (!state) return [];
       const activePasses = [...document.querySelectorAll('.filter-btn[data-pass].active')]
         .map(b => b.dataset.pass)
         .filter(p => p && p !== 'all');
       return allResorts.filter(r => {
-        const matchState = !state || r.state === state;
+        const matchState = state === '__all__' || r.state === state;
         if (activePasses.length === 0) return matchState;
         const matchPass = activePasses.some(p => {
           if (p === 'Other') return r.pass === 'Indy' || r.pass === 'Independent';
@@ -671,22 +698,45 @@
       return d.toLocaleDateString([], { month: 'short', day: 'numeric', year: d.getFullYear() !== now.getFullYear() ? 'numeric' : undefined });
     }
 
-    function showNewsSidebar(resort) {
+    async function showNewsSidebar(resort) {
       const sidebar = document.getElementById('news-sidebar');
+      const iconEl = document.getElementById('news-sidebar-icon');
       const titleEl = document.getElementById('news-sidebar-title');
       const contentEl = document.getElementById('news-sidebar-content');
       const domain = typeof WEBSITE_MAP !== 'undefined' && resort.slug && WEBSITE_MAP[resort.slug];
       const social = typeof SOCIAL_MAP !== 'undefined' && resort.slug && SOCIAL_MAP[resort.slug];
 
-      titleEl.textContent = resort.name + ' — News & Social';
+      const pass = resort.pass || 'Independent';
+      const passClass = pass.toLowerCase();
+      iconEl.innerHTML = getResortIconHtml(resort, passClass);
+      titleEl.textContent = resort.name;
       const websiteUrl = domain ? `https://${domain}` : null;
       const twitterHandle = social?.twitter;
       const instagramHandle = social?.instagram;
 
+      if (!forecastCache.has(getResortKey(resort))) {
+        await loadForecastsForResorts([resort]);
+      }
+      const cached = forecastCache.get(getResortKey(resort));
+      let snowForecastHtml = '';
+      if (cached && (cached.dailyData?.length || cached.snowDepthCm !== undefined || cached.forecastTotal !== undefined)) {
+        const { dailyData = [], snowDepthCm = 0, forecastTotal = 0 } = cached;
+        snowForecastHtml = `
+          <div class="news-snow-forecast">
+            <div class="news-section-title">7-Day Snow Forecast</div>
+            <div class="news-snow-days">
+              <div class="news-snow-day" style="font-weight:600"><span>Snow on ground</span><span class="news-snow-value">${formatSnow(snowDepthCm)}</span></div>
+              ${dailyData.map(d => `<div class="news-snow-day"><span>${formatDate(d.date)}</span><span class="news-snow-value">${formatSnow(d.snow)}</span></div>`).join('')}
+              <div class="news-snow-day" style="font-weight:600;padding-top:0.5rem;border-top:1px solid var(--border);margin-top:0.25rem"><span>7-day total</span><span class="news-snow-value">${formatSnow(forecastTotal)}</span></div>
+            </div>
+          </div>
+        `;
+      }
+
       const GLOBE_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>';
       const X_SVG = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>';
       const INSTAGRAM_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="20" rx="5" ry="5"/><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"/><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"/></svg>';
-      let html = '<div class="news-links">';
+      let html = snowForecastHtml + '<div class="news-links">';
       if (websiteUrl) {
         const faviconUrl = `https://www.google.com/s2/favicons?domain=${domain}&sz=64`;
         html += `<a href="${websiteUrl}" target="_blank" rel="noopener" title="Website"><img src="${faviconUrl}" alt="" class="news-link-favicon" loading="lazy" referrerpolicy="no-referrer" onerror="this.classList.add('hidden');this.nextElementSibling?.classList.remove('hidden')"><span class="news-link-fallback hidden">${GLOBE_SVG}</span></a>`;
@@ -800,42 +850,9 @@
       }
 
       const states = [...new Set(allResorts.map(r => r.state))].sort();
-      stateSelect.innerHTML = '<option value="">All US</option>' + states.map(s => `<option value="${s}">${s}</option>`).join('');
+      stateSelect.innerHTML = '<option value="">Select State</option><option value="__all__">All US</option>' + states.map(s => `<option value="${s}">${s}</option>`).join('');
 
       listEl.innerHTML = '';
-
-      allResorts.forEach(resort => {
-        const pass = resort.pass || 'Independent';
-        const passClass = pass.toLowerCase();
-
-        const card = document.createElement('div');
-        card.className = 'resort-card';
-        card.dataset.name = resort.name;
-        card.dataset.pass = pass;
-        card.dataset.state = resort.state;
-        card.innerHTML = `
-          <div class="resort-name">${resort.name}</div>
-          <div class="resort-meta">${resort.state}</div>
-          <span class="pass-tag ${passClass}">${pass}</span>
-          <div class="resort-forecast">
-            <span class="snow-badge light">—</span>
-            <span style="color:var(--text-muted)">this week</span>
-          </div>
-        `;
-
-        card.addEventListener('click', () => {
-          document.querySelectorAll('.resort-card').forEach(c => c.classList.remove('active'));
-          card.classList.add('active');
-          showNewsSidebar(resort);
-          const m = allMarkers.find(m => m.resort.name === resort.name);
-          if (m) {
-            map.setView([resort.lat, resort.lng], 10);
-            m.marker.openPopup();
-          }
-        });
-
-        listEl.appendChild(card);
-      });
 
       let listViewMode = 'forecast'; // 'forecast' = 7-day total, 'depth' = snow on ground
 
@@ -857,6 +874,7 @@
           const displayValue = listViewMode === 'forecast' ? forecastTotal : snowDepthCm;
           const badgeClass = getSnowBadgeClass(listViewMode === 'forecast' ? forecastTotal : snowDepthCm);
           const label = listViewMode === 'forecast' ? '7-day forecast' : 'snow depth';
+          const snowDisplay = cached ? formatSnow(displayValue) : '—';
 
           const card = document.createElement('div');
           card.className = 'resort-card';
@@ -869,7 +887,7 @@
               <div class="resort-meta">${resort.state}</div>
               <span class="pass-tag ${passClass}">${pass}</span>
               <div class="resort-forecast">
-                <span class="snow-badge ${badgeClass}">${formatSnow(displayValue)}</span>
+                <span class="snow-badge ${badgeClass}">${snowDisplay}</span>
                 <span style="color:var(--text-muted)">${label}</span>
               </div>
             </div>
@@ -899,10 +917,6 @@
         });
       });
 
-      const initialFiltered = getFilteredResorts();
-      renderResortCards(initialFiltered);
-      updateMapAndList(initialFiltered);
-
       const applyStateFilter = async () => {
         const filtered = getFilteredResorts();
         if (filtered.length === 0) {
@@ -916,7 +930,13 @@
         updateMapAndList(filtered);
       };
 
-      stateSelect.addEventListener('change', applyStateFilter);
+      stateSelect.addEventListener('change', async () => {
+        if (stateSelect.value) {
+          const selectStateOpt = stateSelect.querySelector('option[value=""]');
+          if (selectStateOpt) selectStateOpt.remove();
+        }
+        await applyStateFilter();
+      });
 
       const STATE_ABBREV = { AL:'Alabama',AK:'Alaska',AZ:'Arizona',AR:'Arkansas',CA:'California',CO:'Colorado',CT:'Connecticut',DE:'Delaware',FL:'Florida',GA:'Georgia',HI:'Hawaii',ID:'Idaho',IL:'Illinois',IN:'Indiana',IA:'Iowa',KS:'Kansas',KY:'Kentucky',LA:'Louisiana',ME:'Maine',MD:'Maryland',MA:'Massachusetts',MI:'Michigan',MN:'Minnesota',MS:'Mississippi',MO:'Missouri',MT:'Montana',NE:'Nebraska',NV:'Nevada',NH:'New Hampshire',NJ:'New Jersey',NM:'New Mexico',NY:'New York',NC:'North Carolina',ND:'North Dakota',OH:'Ohio',OK:'Oklahoma',OR:'Oregon',PA:'Pennsylvania',RI:'Rhode Island',SC:'South Carolina',SD:'South Dakota',TN:'Tennessee',TX:'Texas',UT:'Utah',VT:'Vermont',VA:'Virginia',WA:'Washington',WV:'West Virginia',WI:'Wisconsin',WY:'Wyoming' };
       document.getElementById('current-state-btn').addEventListener('click', async () => {
@@ -981,13 +1001,6 @@
         });
       });
 
-      const state = stateSelect.value;
-      if (state) {
-        listEl.innerHTML = '<div class="loading">Loading forecasts for ' + initialFiltered.length + ' resorts...</div>';
-        await loadForecastsForResorts(initialFiltered);
-        renderResortCards(initialFiltered);
-        updateMapAndList(initialFiltered);
-      }
     }
 
     init();
