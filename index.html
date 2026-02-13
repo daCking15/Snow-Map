@@ -1,0 +1,996 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Snow Map — Snow Forecast</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-deep: #f8fafc;
+      --bg-card: #ffffff;
+      --bg-elevated: #f1f5f9;
+      --accent-blue: #0ea5e9;
+      --accent-cyan: #0284c7;
+      --text-primary: #0f172a;
+      --text-muted: #64748b;
+      --border: #e2e8f0;
+      --epic: #004e64;
+      --ikon: #1a365d;
+      --indy: #065f46;
+      --independent: #57534e;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: 'Outfit', system-ui, sans-serif;
+      background: var(--bg-deep);
+      color: var(--text-primary);
+      min-height: 100vh;
+      overflow: hidden;
+    }
+
+    .app { display: flex; flex-direction: column; height: 100vh; }
+
+    header {
+      padding: 1rem 1.5rem;
+      background: linear-gradient(180deg, var(--bg-card) 0%, transparent 100%);
+      border-bottom: 1px solid var(--border);
+      z-index: 1000;
+    }
+
+    h1 {
+      font-size: 1.5rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    h1::before { content: '❄'; font-size: 1.4rem; }
+
+    .subtitle { font-size: 0.85rem; color: var(--text-muted); margin-top: 0.2rem; }
+
+    .main { flex: 1; display: flex; min-height: 0; position: relative; }
+
+    #news-sidebar {
+      position: absolute;
+      left: 0;
+      top: 0;
+      bottom: 0;
+      width: 320px;
+      max-width: 90vw;
+      background: var(--bg-card);
+      border-right: 1px solid var(--border);
+      box-shadow: 4px 0 20px rgba(0,0,0,0.08);
+      z-index: 1000;
+      overflow-y: auto;
+      transform: translateX(-100%);
+      transition: transform 0.25s ease;
+    }
+    #news-sidebar.open { transform: translateX(0); }
+    #news-sidebar .news-header {
+      padding: 1rem;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    #news-sidebar .news-header h3 { font-size: 1rem; font-weight: 700; }
+    #news-sidebar .news-close {
+      width: 32px; height: 32px;
+      border: none;
+      background: var(--bg-elevated);
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 1.2rem;
+      line-height: 1;
+      color: var(--text-muted);
+    }
+    #news-sidebar .news-close:hover { background: var(--border); color: var(--text-primary); }
+    #news-sidebar .news-content { padding: 1rem; }
+    #news-sidebar .news-links { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 1rem; }
+    #news-sidebar .news-links a {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 36px;
+      height: 36px;
+      background: var(--bg-elevated);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text-primary);
+      text-decoration: none;
+      transition: background 0.2s, border-color 0.2s;
+    }
+    #news-sidebar .news-links a:hover { background: rgba(14, 165, 233, 0.1); border-color: var(--accent-blue); color: var(--accent-cyan); }
+    #news-sidebar .news-links a svg { width: 18px; height: 18px; }
+    #news-sidebar .news-links a img { width: 18px; height: 18px; object-fit: contain; }
+    #news-sidebar .news-links .hidden { display: none !important; }
+    #news-sidebar .news-links .news-link-fallback { display: inline-flex; align-items: center; justify-content: center; }
+    #news-sidebar .news-section-title { font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-muted); margin-bottom: 0.5rem; }
+    #news-sidebar .news-placeholder { color: var(--text-muted); font-size: 0.85rem; padding: 0.5rem 0; }
+    #news-sidebar .news-list { display: flex; flex-direction: column; gap: 0.75rem; }
+    #news-sidebar .news-item {
+      padding: 0.75rem;
+      background: var(--bg-elevated);
+      border-radius: 8px;
+      border: 1px solid var(--border);
+    }
+    #news-sidebar .news-item a {
+      color: var(--text-primary);
+      text-decoration: none;
+      font-weight: 600;
+      font-size: 0.9rem;
+      line-height: 1.3;
+    }
+    #news-sidebar .news-item a:hover { color: var(--accent-cyan); }
+    #news-sidebar .news-item .news-meta { font-size: 0.7rem; color: var(--text-muted); margin-top: 0.35rem; }
+    #news-sidebar .news-tweet-preview { font-size: 0.8rem; color: var(--text-muted); margin: 0.4rem 0 0 0; line-height: 1.4; }
+
+    #map { flex: 1; background: var(--bg-card); }
+
+    .sidebar {
+      width: 340px;
+      flex-shrink: 0;
+      display: flex;
+      flex-direction: column;
+      background: var(--bg-card);
+      border-left: 1px solid var(--border);
+      padding: 1rem;
+      min-height: 0;
+    }
+
+    .sidebar-title {
+      font-size: 0.75rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--text-muted);
+      margin-bottom: 0.5rem;
+    }
+    .view-toggle {
+      display: flex;
+      gap: 0.25rem;
+      margin-bottom: 0.75rem;
+    }
+    .view-toggle-btn {
+      flex: 1;
+      font-family: 'Outfit', sans-serif;
+      font-size: 0.75rem;
+      font-weight: 600;
+      padding: 0.4rem 0.5rem;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--bg-elevated);
+      color: var(--text-muted);
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+    .view-toggle-btn:hover { border-color: var(--accent-blue); color: var(--text-primary); }
+    .view-toggle-btn.active { background: rgba(14, 165, 233, 0.15); border-color: var(--accent-blue); color: var(--accent-cyan); }
+
+    .filter-section {
+      padding: 0 0 1rem 0;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 1rem;
+    }
+
+    .filter-label {
+      font-size: 0.7rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--text-muted);
+      margin-bottom: 0.5rem;
+      display: block;
+    }
+
+    .state-row { display: flex; gap: 0.5rem; align-items: stretch; }
+    .state-row .state-select { flex: 1; min-width: 0; }
+    .current-state-btn {
+      font-family: 'Outfit', sans-serif;
+      font-size: 0.75rem;
+      font-weight: 600;
+      padding: 0.5rem 0.75rem;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--bg-elevated);
+      color: var(--text-primary);
+      cursor: pointer;
+      flex-shrink: 0;
+      white-space: nowrap;
+      transition: all 0.2s ease;
+    }
+    .current-state-btn:hover { border-color: var(--accent-blue); background: rgba(14, 165, 233, 0.08); color: var(--accent-cyan); }
+    .current-state-btn:disabled { opacity: 0.6; cursor: wait; }
+    .state-select {
+      width: 100%;
+      padding: 0.5rem 0.75rem;
+      font-family: 'Outfit', sans-serif;
+      font-size: 0.9rem;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--bg-elevated);
+      color: var(--text-primary);
+      cursor: pointer;
+    }
+
+    .filter-bar { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.5rem; }
+
+    .filter-btn {
+      font-family: 'Outfit', sans-serif;
+      font-size: 0.75rem;
+      font-weight: 600;
+      padding: 0.35rem 0.6rem;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: var(--bg-elevated);
+      color: var(--text-primary);
+      cursor: pointer;
+      transition: all 0.2s ease;
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+    }
+    .filter-btn .pass-icon { width: 14px; height: 14px; flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; }
+    .filter-btn .pass-icon svg { width: 100%; height: 100%; }
+    .filter-btn .pass-icon-img img { width: 100%; height: 100%; object-fit: contain; }
+
+    .filter-btn:hover { border-color: var(--accent-blue); background: rgba(14, 165, 233, 0.08); }
+    .filter-btn.active { border-color: var(--accent-blue); background: rgba(14, 165, 233, 0.15); color: var(--accent-cyan); }
+    .filter-btn.active.epic { border-color: var(--epic); background: rgba(0, 78, 100, 0.2); color: var(--epic); }
+    .filter-btn.active.ikon { border-color: var(--ikon); background: rgba(26, 54, 93, 0.2); color: var(--ikon); }
+    .filter-btn.active.other { border-color: var(--indy); background: rgba(6, 95, 70, 0.2); color: var(--indy); }
+
+    .resort-list { flex: 1; display: flex; flex-direction: column; gap: 0.5rem; min-height: 0; overflow-y: auto; }
+
+    .resort-card {
+      background: var(--bg-elevated);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.6rem 0.9rem;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      flex-shrink: 0;
+      display: flex;
+      gap: 0.6rem;
+    }
+    .resort-icon {
+      flex-shrink: 0;
+      width: 40px;
+      height: 40px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 6px;
+      color: #fff;
+    }
+    .resort-icon svg { width: 24px; height: 24px; }
+    .resort-icon img { width: 28px; height: 28px; object-fit: contain; }
+    .resort-icon.resort-icon-favicon { background: var(--bg-elevated); padding: 6px; }
+    .resort-icon.resort-icon-sm { width: 36px; height: 36px; }
+    .resort-icon.resort-icon-sm svg { width: 20px; height: 20px; }
+    .resort-icon.resort-icon-sm img { width: 24px; height: 24px; }
+    .resort-icon.epic { background: linear-gradient(135deg, var(--epic) 0%, #003647 100%); }
+    .resort-icon.ikon { background: linear-gradient(135deg, var(--ikon) 0%, #0f2744 100%); }
+    .resort-icon.indy { background: linear-gradient(135deg, var(--indy) 0%, #034d3a 100%); }
+    .resort-icon.independent { background: linear-gradient(135deg, var(--independent) 0%, #44403c 100%); }
+    .resort-card-content { flex: 1; min-width: 0; }
+
+    .resort-card:hover { border-color: var(--accent-blue); background: rgba(14, 165, 233, 0.08); }
+    .resort-card.active { border-color: var(--accent-blue); box-shadow: 0 0 0 2px var(--accent-blue); }
+    .resort-card.hidden { display: none; }
+
+    .resort-name { font-weight: 600; font-size: 0.9rem; }
+    .resort-meta { font-size: 0.7rem; color: var(--text-muted); margin-top: 0.2rem; }
+
+    .resort-forecast { display: flex; align-items: center; gap: 0.5rem; margin-top: 0.3rem; font-size: 0.75rem; }
+
+    .snow-badge {
+      font-family: 'JetBrains Mono', monospace;
+      font-weight: 500;
+      padding: 0.15rem 0.4rem;
+      border-radius: 4px;
+      background: rgba(14, 165, 233, 0.2);
+      color: var(--accent-cyan);
+      font-size: 0.75rem;
+    }
+    .snow-badge.light { background: rgba(14, 165, 233, 0.12); color: #0284c7; }
+    .snow-badge.moderate { background: rgba(14, 165, 233, 0.2); color: #0369a1; }
+    .snow-badge.heavy { background: rgba(14, 165, 233, 0.3); color: #0c4a6e; }
+
+    .pass-tag {
+      font-size: 0.6rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      padding: 0.1rem 0.35rem;
+      border-radius: 3px;
+      margin-top: 0.25rem;
+      display: inline-block;
+    }
+    .pass-tag.epic { background: rgba(0, 78, 100, 0.15); color: var(--epic); }
+    .pass-tag.ikon { background: rgba(26, 54, 93, 0.15); color: var(--ikon); }
+    .pass-tag.indy { background: rgba(6, 95, 70, 0.15); color: var(--indy); }
+    .pass-tag.independent { background: rgba(87, 83, 78, 0.15); color: var(--independent); }
+
+    .loading { display: flex; align-items: center; gap: 0.5rem; color: var(--text-muted); font-size: 0.85rem; }
+    .loading::after {
+      content: '';
+      width: 14px; height: 14px;
+      border: 2px solid var(--border);
+      border-top-color: var(--accent-blue);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .leaflet-popup-content-wrapper {
+      background: var(--bg-card);
+      color: var(--text-primary);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.12);
+    }
+    .leaflet-popup-tip { background: var(--bg-card); }
+    .leaflet-popup-content { margin: 1rem 1.25rem; min-width: 200px; }
+
+    .popup-title { font-weight: 700; font-size: 1rem; margin-bottom: 0.75rem; padding-bottom: 0.5rem; border-bottom: 1px solid var(--border); }
+    .popup-forecast { font-size: 0.85rem; }
+    .popup-day { display: flex; justify-content: space-between; padding: 0.35rem 0; border-bottom: 1px solid rgba(30, 41, 59, 0.5); }
+    .popup-day:last-child { border-bottom: none; }
+    .popup-snow { font-family: 'JetBrains Mono', monospace; font-weight: 500; color: var(--accent-cyan); }
+
+    .attribution { flex-shrink: 0; font-size: 0.65rem; color: var(--text-muted); margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--border); }
+    .attribution a { color: var(--accent-cyan); text-decoration: none; }
+
+    .radar-control.leaflet-bar {
+      background: var(--bg-card) !important;
+      border: 1px solid var(--border) !important;
+      border-radius: 8px !important;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+    .radar-control button {
+      font-family: 'Outfit', sans-serif;
+      font-size: 0.8rem;
+      font-weight: 600;
+      padding: 0.5rem 0.75rem;
+      border: none;
+      background: transparent;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      color: var(--text-primary);
+      width: 100%;
+    }
+    .radar-control button:hover:not(:disabled) { background: var(--bg-elevated); }
+    .radar-control button.active { background: rgba(14, 165, 233, 0.15); color: var(--accent-cyan); }
+    .radar-control button:disabled { opacity: 0.7; cursor: wait; }
+    .radar-control .radar-icon { width: 18px; height: 18px; opacity: 0.8; }
+
+    @media (max-width: 768px) {
+      .main { flex-direction: column-reverse; }
+      .sidebar { width: 100%; max-height: 50vh; border-left: none; border-top: 1px solid var(--border); }
+      .resort-list { min-height: 120px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header>
+      <h1>Snow Map</h1>
+      <p class="subtitle">7-day snow forecast — select a state to zoom & filter</p>
+    </header>
+
+    <div class="main">
+      <aside id="news-sidebar">
+        <div class="news-header">
+          <h3 id="news-sidebar-title">Resort News</h3>
+          <button class="news-close" id="news-sidebar-close" aria-label="Close">×</button>
+        </div>
+        <div class="news-content" id="news-sidebar-content"></div>
+      </aside>
+      <div id="map"></div>
+      <aside class="sidebar">
+        <div class="filter-section">
+          <label class="filter-label">State</label>
+          <div class="state-row">
+            <select id="state-select" class="state-select">
+              <option value="">Loading...</option>
+            </select>
+            <button type="button" id="current-state-btn" class="current-state-btn" title="Use your location">Current State</button>
+          </div>
+          <label class="filter-label" style="margin-top:0.75rem">Filter by pass</label>
+          <div class="filter-bar">
+            <button class="filter-btn active" data-pass="all"><span class="pass-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="6" r="2"/><circle cx="18" cy="6" r="2"/><circle cx="6" cy="18" r="2"/><circle cx="18" cy="18" r="2"/></svg></span>All</button>
+            <button class="filter-btn" data-pass="Epic"><span class="pass-icon pass-icon-img" data-fallback='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83M7.76 7.76l2.83 2.83M19.07 19.07l-2.83-2.83M7.76 16.24l2.83-2.83M19.07 4.93l-2.83 2.83"/></svg>'><img src="https://www.epicorikon.com/img/logos/epic-circle-logo.png" alt="Epic" referrerpolicy="no-referrer" onerror="var s=this.closest('.pass-icon-img');if(s&&s.dataset.fallback){s.innerHTML=s.dataset.fallback;s.style.color='var(--epic)'}"></span>Epic</button>
+            <button class="filter-btn" data-pass="Ikon"><span class="pass-icon pass-icon-img" data-fallback='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 6c-3.31 0-6 2.69-6 6s2.69 6 6 6 6-2.69 6-6-2.69-6-6-6zm0 12c3.31 0 6-2.69 6-6s-2.69-6-6-6-6 2.69-6 6 2.69 6 6 6z"/></svg>'><img src="https://www.epicorikon.com/img/logos/ikon-circle-logo.png" alt="Ikon" referrerpolicy="no-referrer" onerror="var s=this.closest('.pass-icon-img');if(s&&s.dataset.fallback){s.innerHTML=s.dataset.fallback;s.style.color='var(--ikon)'}"></span>Ikon</button>
+            <button class="filter-btn" data-pass="Other"><span class="pass-icon" style="color:var(--indy)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m8 3 4 8 4-8 4 16H4L8 3z"/></svg></span>Other</button>
+          </div>
+        </div>
+        <div class="sidebar-title">Resorts & Weekly Snow</div>
+        <div class="view-toggle">
+          <button class="view-toggle-btn active" data-view="forecast">7-day forecast</button>
+          <button class="view-toggle-btn" data-view="depth">Snow depth</button>
+        </div>
+        <div id="resort-list" class="resort-list">
+          <div class="loading">Loading resorts</div>
+        </div>
+        <div class="attribution">
+          Data: <a href="https://github.com/bryanparthum/north-american-ski-resorts" target="_blank">NA Ski Resorts</a>.
+          Weather: <a href="https://open-meteo.com/" target="_blank">Open-Meteo</a>.
+          Radar: <a href="https://www.rainviewer.com/" target="_blank">RainViewer</a>.
+          Map © <a href="https://www.openstreetmap.org/copyright" target="_blank">OSM</a>.
+        </div>
+      </aside>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="ski-resorts.js"></script>
+  <script>
+    const map = L.map('map', {
+      center: [39.5, -98],
+      zoom: 4,
+      zoomControl: false
+    });
+
+    L.control.zoom({ position: 'bottomright' }).addTo(map);
+
+    let radarLayer = null;
+    const RADAR_TILE_SIZE = (typeof window !== 'undefined' && window.devicePixelRatio >= 2) ? 512 : 256;
+    const RADAR_OPACITY = 0.7;
+
+    async function toggleRadarOverlay() {
+      if (radarLayer) {
+        map.removeLayer(radarLayer);
+        radarLayer = null;
+        document.getElementById('radar-toggle')?.classList.remove('active');
+        return;
+      }
+      const btn = document.getElementById('radar-toggle');
+      if (btn) btn.disabled = true;
+      try {
+        const res = await fetch('https://api.rainviewer.com/public/weather-maps.json', { mode: 'cors' });
+        if (!res.ok) throw new Error('API request failed');
+        const data = await res.json();
+        if (!data?.radar?.past?.length) {
+          console.warn('No radar data available');
+          return;
+        }
+        const frame = data.radar.past[data.radar.past.length - 1];
+        const url = data.host + frame.path + '/' + RADAR_TILE_SIZE + '/{z}/{x}/{y}/2/1_1.png';
+        radarLayer = L.tileLayer(url, {
+          tileSize: 256,
+          opacity: RADAR_OPACITY,
+          maxNativeZoom: 7,
+          maxZoom: 19
+        });
+        radarLayer.addTo(map);
+        btn?.classList.add('active');
+      } catch (e) {
+        console.warn('Radar load failed:', e);
+      }
+      btn?.removeAttribute('disabled');
+    }
+
+    const RadarControl = L.Control.extend({
+      onAdd() {
+        const div = document.createElement('div');
+        div.className = 'radar-control leaflet-bar';
+        const btn = document.createElement('button');
+        btn.id = 'radar-toggle';
+        btn.title = 'Toggle live precipitation radar (snow shown in blue)';
+        btn.innerHTML = `<svg class="radar-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/><circle cx="12" cy="12" r="3"/></svg><span>Radar</span>`;
+        btn.addEventListener('click', toggleRadarOverlay);
+        div.appendChild(btn);
+        return div;
+      }
+    });
+    map.addControl(new RadarControl({ position: 'topright' }));
+
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+      subdomains: 'abc',
+      maxZoom: 19
+    }).addTo(map);
+
+    const BOUNDS_PADDING = 60;
+    const passColors = { Epic: '#004e64', Ikon: '#1a365d', Indy: '#065f46', Independent: '#57534e' };
+    const MOUNTAIN_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m8 3 4 8 4-8 4 16H4L8 3z"/></svg>';
+
+    function getResortIconHtml(resort, passClass, sizeClass = '') {
+      const domain = typeof WEBSITE_MAP !== 'undefined' && resort.slug && WEBSITE_MAP[resort.slug];
+      if (domain) {
+        const faviconUrl = `https://www.google.com/s2/favicons?domain=${domain}&sz=64`;
+        const esc = (s) => s.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '\\"');
+        return `<span class="resort-icon resort-icon-favicon ${sizeClass}" data-pass="${passClass}">
+          <img src="${faviconUrl}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="var p=this.parentElement;p.classList.remove('resort-icon-favicon');p.classList.add(p.dataset.pass);p.innerHTML='${esc(MOUNTAIN_SVG)}'"></span>`;
+      }
+      return `<span class="resort-icon ${passClass} ${sizeClass}">${MOUNTAIN_SVG}</span>`;
+    }
+
+    function getSnowBadgeClass(snowDepthCm) {
+      // Thresholds for snow-on-ground (roughly 12 in, 39 in)
+      const inches = cmToInches(snowDepthCm);
+      if (inches >= 39) return 'heavy';
+      if (inches >= 12) return 'moderate';
+      return 'light';
+    }
+
+    function cmToInches(cm) {
+      return cm / 2.54;
+    }
+
+    function formatSnow(cm) {
+      if (cm === null || cm === undefined) return '—';
+      const in_ = cmToInches(cm);
+      if (in_ === 0) return '0 in';
+      return `${(Math.round(in_ * 10) / 10)} in`;
+    }
+
+    function formatDate(iso) {
+      const d = new Date(iso);
+      return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+    }
+
+    async function fetchForecast(lat, lng) {
+      const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&current=snow_depth&daily=snowfall_sum&timezone=auto&forecast_days=7`;
+      const res = await fetch(url);
+      if (!res.ok) throw new Error('Forecast fetch failed');
+      return res.json();
+    }
+
+    async function fetchForecastsBatch(resorts) {
+      const BATCH_SIZE = 25;
+      const results = [];
+      for (let i = 0; i < resorts.length; i += BATCH_SIZE) {
+        const batch = resorts.slice(i, i + BATCH_SIZE);
+        const batchResults = await Promise.allSettled(batch.map(r => fetchForecast(r.lat, r.lng)));
+        results.push(...batchResults);
+      }
+      return results;
+    }
+
+    let allResorts = [];
+    let allMarkers = [];
+    let markerLayer = L.layerGroup().addTo(map);
+    let forecastCache = new Map();
+
+    function getResortKey(r) { return `${r.lat.toFixed(4)},${r.lng.toFixed(4)}`; }
+
+    const SKI_ICON_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#0f172a" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m8 3 4 8 4-8 4 16H4L8 3z"/></svg>';
+
+    function createIcon(resort, pass, size = 20) {
+      const iconSize = Math.max(10, Math.round(size * 0.55));
+      const domain = typeof WEBSITE_MAP !== 'undefined' && resort?.slug && WEBSITE_MAP[resort.slug];
+      let inner = '';
+      if (domain && size >= 16) {
+        const faviconUrl = `https://www.google.com/s2/favicons?domain=${domain}&sz=32`;
+        inner = `<img src="${faviconUrl}" style="width:${iconSize}px;height:${iconSize}px;object-fit:contain" alt="" referrerpolicy="no-referrer">`;
+      } else {
+        inner = SKI_ICON_SVG.replace('width="12" height="12"', `width="${iconSize}" height="${iconSize}"`);
+      }
+      return L.divIcon({
+        className: 'custom-marker',
+        html: `<div style="width:${size}px;height:${size}px;background:#fff;border:2px solid #e2e8f0;border-radius:50%;box-shadow:0 1px 4px rgba(0,0,0,0.2);display:flex;align-items:center;justify-content:center;overflow:hidden">${inner}</div>`,
+        iconSize: [size, size],
+        iconAnchor: [size / 2, size / 2]
+      });
+    }
+
+    function fitMapToResorts(resorts) {
+      if (!resorts.length) return;
+      const bounds = L.latLngBounds(resorts.map(r => [r.lat, r.lng]));
+      map.fitBounds(bounds, { padding: [BOUNDS_PADDING, BOUNDS_PADDING], maxZoom: 12 });
+    }
+
+    function getFilteredResorts() {
+      const state = document.getElementById('state-select').value;
+      const activePasses = [...document.querySelectorAll('.filter-btn[data-pass].active')]
+        .map(b => b.dataset.pass)
+        .filter(p => p && p !== 'all');
+      return allResorts.filter(r => {
+        const matchState = !state || r.state === state;
+        if (activePasses.length === 0) return matchState;
+        const matchPass = activePasses.some(p => {
+          if (p === 'Other') return r.pass === 'Indy' || r.pass === 'Independent';
+          return r.pass === p;
+        });
+        return matchState && matchPass;
+      });
+    }
+
+    function updateMapAndList(filtered) {
+      filtered = filtered || getFilteredResorts();
+
+      markerLayer.clearLayers();
+      allMarkers = [];
+
+      const size = filtered.length > 100 ? 32 : 44;
+      filtered.forEach(r => {
+        const cached = forecastCache.get(getResortKey(r));
+        const popupContent = cached
+          ? buildPopupContent(r, cached.dailyData, cached.snowDepthCm, cached.forecastTotal)
+          : buildPopupContent(r);
+        const marker = L.marker([r.lat, r.lng], { icon: createIcon(r, r.pass, size) })
+          .addTo(markerLayer)
+          .bindPopup(popupContent);
+        allMarkers.push({ marker, resort: r });
+      });
+
+      document.querySelectorAll('.resort-card').forEach(card => {
+        const name = card.dataset.name;
+        const resort = filtered.find(r => r.name === name);
+        card.classList.toggle('hidden', !resort);
+      });
+
+      fitMapToResorts(filtered);
+    }
+
+    map.on('popupopen', (e) => {
+      const marker = e.popup.getSource?.() ?? e.popup._source;
+      const entry = allMarkers.find(m => m.marker === marker);
+      if (entry?.resort) {
+        showNewsSidebar(entry.resort);
+        document.querySelectorAll('.resort-card').forEach(c => c.classList.remove('active'));
+        const card = [...document.querySelectorAll('.resort-card')].find(c => c.dataset.name === entry.resort.name);
+        if (card) {
+          card.classList.add('active');
+          card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+      }
+    });
+
+    async function fetchResortNews(resortName) {
+      const query = encodeURIComponent(resortName + ' ski resort');
+      const rssUrl = `https://news.google.com/rss/search?q=${query}&hl=en-US&gl=US&ceid=US:en`;
+      try {
+        const res = await fetch(`https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(rssUrl)}`);
+        const data = await res.json();
+        if (data.status === 'ok' && data.items?.length) {
+          return data.items.slice(0, 8);
+        }
+      } catch (e) { console.warn('News fetch failed:', e); }
+      return [];
+    }
+
+    function formatNewsDate(pubDate) {
+      if (!pubDate) return '';
+      const d = new Date(pubDate);
+      const now = new Date();
+      const diff = (now - d) / 864e5;
+      if (diff < 1) return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      if (diff < 7) return Math.floor(diff) + 'd ago';
+      return d.toLocaleDateString([], { month: 'short', day: 'numeric', year: d.getFullYear() !== now.getFullYear() ? 'numeric' : undefined });
+    }
+
+    function showNewsSidebar(resort) {
+      const sidebar = document.getElementById('news-sidebar');
+      const titleEl = document.getElementById('news-sidebar-title');
+      const contentEl = document.getElementById('news-sidebar-content');
+      const domain = typeof WEBSITE_MAP !== 'undefined' && resort.slug && WEBSITE_MAP[resort.slug];
+      const social = typeof SOCIAL_MAP !== 'undefined' && resort.slug && SOCIAL_MAP[resort.slug];
+
+      titleEl.textContent = resort.name + ' — News & Social';
+      const websiteUrl = domain ? `https://${domain}` : null;
+      const twitterHandle = social?.twitter;
+      const instagramHandle = social?.instagram;
+
+      const GLOBE_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>';
+      const X_SVG = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>';
+      const INSTAGRAM_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="20" rx="5" ry="5"/><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"/><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"/></svg>';
+      let html = '<div class="news-links">';
+      if (websiteUrl) {
+        const faviconUrl = `https://www.google.com/s2/favicons?domain=${domain}&sz=64`;
+        html += `<a href="${websiteUrl}" target="_blank" rel="noopener" title="Website"><img src="${faviconUrl}" alt="" class="news-link-favicon" loading="lazy" referrerpolicy="no-referrer" onerror="this.classList.add('hidden');this.nextElementSibling?.classList.remove('hidden')"><span class="news-link-fallback hidden">${GLOBE_SVG}</span></a>`;
+      }
+      if (twitterHandle) {
+        html += `<a href="https://x.com/${twitterHandle}" target="_blank" rel="noopener" title="X">${X_SVG}</a>`;
+      }
+      if (instagramHandle) {
+        html += `<a href="https://instagram.com/${instagramHandle}" target="_blank" rel="noopener" title="Instagram">${INSTAGRAM_SVG}</a>`;
+      }
+      html += '</div>';
+
+      html += '<div class="news-section-title" style="margin-top:1rem">Latest News</div>';
+      html += '<div id="news-list-container" class="news-list"><div class="news-placeholder">Loading news…</div></div>';
+
+      if (!twitterHandle && !instagramHandle && !websiteUrl) {
+        html += '<div class="news-placeholder" style="margin-top:0.5rem">Social links for this resort are not yet available.</div>';
+      }
+
+      contentEl.innerHTML = html;
+      sidebar.classList.add('open');
+
+      fetchResortNews(resort.name).then(items => {
+        const container = document.getElementById('news-list-container');
+        if (!container) return;
+        if (!items.length) {
+          container.innerHTML = '<div class="news-placeholder">No recent news found.</div>';
+          return;
+        }
+        container.innerHTML = items.map(item => {
+          const title = (item.title || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+          const link = (item.link || '#').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+          const date = formatNewsDate(item.pubDate);
+          return `<div class="news-item"><a href="${link}" target="_blank" rel="noopener">${title}</a><div class="news-meta">${date}</div></div>`;
+        }).join('');
+      });
+
+    }
+
+    function closeNewsSidebar() {
+      document.getElementById('news-sidebar').classList.remove('open');
+    }
+
+    document.getElementById('news-sidebar-close').addEventListener('click', closeNewsSidebar);
+
+    function buildPopupContent(resort, dailyData = null, snowDepthCm = 0, forecastTotal = 0) {
+      const pass = resort.pass || 'Independent';
+      const passClass = pass.toLowerCase();
+      const hasForecast = dailyData && dailyData.length;
+
+      let forecastHtml = '<div class="popup-forecast">Forecast loading...</div>';
+      if (hasForecast) {
+        forecastHtml = `
+          <div class="popup-forecast">
+            <div class="popup-day" style="font-weight:600;margin-bottom:0.5rem">
+              <span>Snow on ground</span><span class="popup-snow">${formatSnow(snowDepthCm)}</span>
+            </div>
+            ${dailyData.map(d => `<div class="popup-day"><span>${formatDate(d.date)}</span><span class="popup-snow">${formatSnow(d.snow)}</span></div>`).join('')}
+            <div class="popup-day" style="font-weight:600;margin-top:0.5rem;padding-top:0.5rem;border-top:1px solid var(--border)">
+              <span>7-day forecast</span><span class="popup-snow">${formatSnow(forecastTotal)}</span>
+            </div>
+          </div>
+        `;
+      }
+
+      return `
+        <div class="popup-title">${resort.name} <span class="pass-tag ${passClass}">${pass}</span></div>
+        <div style="font-size:0.8rem;color:var(--text-muted);margin-bottom:0.5rem">${resort.state}</div>
+        ${forecastHtml}
+      `;
+    }
+
+    async function loadForecastsForResorts(resorts) {
+      const toFetch = resorts.filter(r => !forecastCache.has(getResortKey(r)));
+      if (!toFetch.length) return;
+
+      const results = await fetchForecastsBatch(toFetch);
+      toFetch.forEach((r, i) => {
+        const res = results[i];
+        let snowDepthCm = 0; // snow on ground (meters → cm)
+        let dailyData = [];
+        let forecastTotal = 0;
+        if (res.status === 'fulfilled') {
+          const data = res.value;
+          const snowDepthM = data.current?.snow_depth;
+          snowDepthCm = snowDepthM != null ? Math.round(snowDepthM * 100) : 0;
+          const daily = data.daily || {};
+          const times = daily.time || [];
+          const snowfall = daily.snowfall_sum || [];
+          for (let j = 0; j < times.length; j++) {
+            const cm = snowfall[j] != null ? snowfall[j] : 0;
+            forecastTotal += cm;
+            dailyData.push({ date: times[j], snow: cm });
+          }
+        }
+        forecastCache.set(getResortKey(r), { dailyData, snowDepthCm, forecastTotal });
+      });
+    }
+
+    async function init() {
+      const listEl = document.getElementById('resort-list');
+      const stateSelect = document.getElementById('state-select');
+
+      listEl.innerHTML = '<div class="loading">Loading resorts...</div>';
+
+      try {
+        allResorts = await loadUSResorts();
+      } catch (e) {
+        listEl.innerHTML = '<div style="color:#dc2626">Failed to load resorts. Check connection.</div>';
+        return;
+      }
+
+      const states = [...new Set(allResorts.map(r => r.state))].sort();
+      stateSelect.innerHTML = '<option value="">All US</option>' + states.map(s => `<option value="${s}">${s}</option>`).join('');
+
+      listEl.innerHTML = '';
+
+      allResorts.forEach(resort => {
+        const pass = resort.pass || 'Independent';
+        const passClass = pass.toLowerCase();
+
+        const card = document.createElement('div');
+        card.className = 'resort-card';
+        card.dataset.name = resort.name;
+        card.dataset.pass = pass;
+        card.dataset.state = resort.state;
+        card.innerHTML = `
+          <div class="resort-name">${resort.name}</div>
+          <div class="resort-meta">${resort.state}</div>
+          <span class="pass-tag ${passClass}">${pass}</span>
+          <div class="resort-forecast">
+            <span class="snow-badge light">—</span>
+            <span style="color:var(--text-muted)">this week</span>
+          </div>
+        `;
+
+        card.addEventListener('click', () => {
+          document.querySelectorAll('.resort-card').forEach(c => c.classList.remove('active'));
+          card.classList.add('active');
+          showNewsSidebar(resort);
+          const m = allMarkers.find(m => m.resort.name === resort.name);
+          if (m) {
+            map.setView([resort.lat, resort.lng], 10);
+            m.marker.openPopup();
+          }
+        });
+
+        listEl.appendChild(card);
+      });
+
+      let listViewMode = 'forecast'; // 'forecast' = 7-day total, 'depth' = snow on ground
+
+      function renderResortCards(filtered) {
+        listEl.innerHTML = '';
+        const sorted = [...filtered].sort((a, b) => {
+          const cachedA = forecastCache.get(getResortKey(a));
+          const cachedB = forecastCache.get(getResortKey(b));
+          const valA = listViewMode === 'forecast' ? (cachedA?.forecastTotal ?? 0) : (cachedA?.snowDepthCm ?? 0);
+          const valB = listViewMode === 'forecast' ? (cachedB?.forecastTotal ?? 0) : (cachedB?.snowDepthCm ?? 0);
+          return valB - valA; // descending: most first
+        });
+        sorted.forEach(resort => {
+          const pass = resort.pass || 'Independent';
+          const passClass = pass.toLowerCase();
+          const cached = forecastCache.get(getResortKey(resort));
+          const snowDepthCm = cached?.snowDepthCm ?? 0;
+          const forecastTotal = cached?.forecastTotal ?? 0;
+          const displayValue = listViewMode === 'forecast' ? forecastTotal : snowDepthCm;
+          const badgeClass = getSnowBadgeClass(listViewMode === 'forecast' ? forecastTotal : snowDepthCm);
+          const label = listViewMode === 'forecast' ? '7-day forecast' : 'snow depth';
+
+          const card = document.createElement('div');
+          card.className = 'resort-card';
+          card.dataset.name = resort.name;
+          card.dataset.pass = pass;
+          card.innerHTML = `
+            ${getResortIconHtml(resort, passClass)}
+            <div class="resort-card-content">
+              <div class="resort-name">${resort.name}</div>
+              <div class="resort-meta">${resort.state}</div>
+              <span class="pass-tag ${passClass}">${pass}</span>
+              <div class="resort-forecast">
+                <span class="snow-badge ${badgeClass}">${formatSnow(displayValue)}</span>
+                <span style="color:var(--text-muted)">${label}</span>
+              </div>
+            </div>
+          `;
+
+          card.addEventListener('click', () => {
+            document.querySelectorAll('.resort-card').forEach(c => c.classList.remove('active'));
+            card.classList.add('active');
+            showNewsSidebar(resort);
+            const m = allMarkers.find(m => m.resort.name === resort.name);
+            if (m) {
+              map.setView([resort.lat, resort.lng], 10);
+              m.marker.openPopup();
+            }
+          });
+
+          listEl.appendChild(card);
+        });
+      }
+
+      document.querySelectorAll('.view-toggle-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          document.querySelectorAll('.view-toggle-btn').forEach(b => b.classList.remove('active'));
+          btn.classList.add('active');
+          listViewMode = btn.dataset.view === 'depth' ? 'depth' : 'forecast';
+          renderResortCards(getFilteredResorts());
+        });
+      });
+
+      const initialFiltered = getFilteredResorts();
+      renderResortCards(initialFiltered);
+      updateMapAndList(initialFiltered);
+
+      const applyStateFilter = async () => {
+        const filtered = getFilteredResorts();
+        if (filtered.length === 0) {
+          renderResortCards([]);
+          updateMapAndList([]);
+          return;
+        }
+        listEl.innerHTML = '<div class="loading">Loading forecasts for ' + filtered.length + ' resorts...</div>';
+        await loadForecastsForResorts(filtered);
+        renderResortCards(filtered);
+        updateMapAndList(filtered);
+      };
+
+      stateSelect.addEventListener('change', applyStateFilter);
+
+      const STATE_ABBREV = { AL:'Alabama',AK:'Alaska',AZ:'Arizona',AR:'Arkansas',CA:'California',CO:'Colorado',CT:'Connecticut',DE:'Delaware',FL:'Florida',GA:'Georgia',HI:'Hawaii',ID:'Idaho',IL:'Illinois',IN:'Indiana',IA:'Iowa',KS:'Kansas',KY:'Kentucky',LA:'Louisiana',ME:'Maine',MD:'Maryland',MA:'Massachusetts',MI:'Michigan',MN:'Minnesota',MS:'Mississippi',MO:'Missouri',MT:'Montana',NE:'Nebraska',NV:'Nevada',NH:'New Hampshire',NJ:'New Jersey',NM:'New Mexico',NY:'New York',NC:'North Carolina',ND:'North Dakota',OH:'Ohio',OK:'Oklahoma',OR:'Oregon',PA:'Pennsylvania',RI:'Rhode Island',SC:'South Carolina',SD:'South Dakota',TN:'Tennessee',TX:'Texas',UT:'Utah',VT:'Vermont',VA:'Virginia',WA:'Washington',WV:'West Virginia',WI:'Wisconsin',WY:'Wyoming' };
+      document.getElementById('current-state-btn').addEventListener('click', async () => {
+        const btn = document.getElementById('current-state-btn');
+        btn.disabled = true;
+        btn.textContent = 'Locating…';
+        try {
+          const pos = await new Promise((resolve, reject) => {
+            if (!navigator.geolocation) reject(new Error('Geolocation not supported'));
+            navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 10000 });
+          });
+          const { latitude, longitude } = pos.coords;
+          const res = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${latitude}&lon=${longitude}&format=json&addressdetails=1`, {
+            headers: { 'Accept': 'application/json', 'User-Agent': 'SkiResortForecast/1.0' }
+          });
+          const data = await res.json();
+          let stateName = data?.address?.state || data?.address?.region;
+          if (!stateName) throw new Error('Could not determine state');
+          if (STATE_ABBREV[stateName]) stateName = STATE_ABBREV[stateName];
+          const match = states.find(s => s.toLowerCase() === stateName.toLowerCase());
+          if (match) {
+            stateSelect.value = match;
+            await applyStateFilter();
+          } else {
+            alert('No ski resorts found for ' + stateName + '. Try selecting a state manually.');
+          }
+        } catch (e) {
+          alert('Could not get location: ' + (e.message || 'Please enable location access or select a state manually.'));
+        } finally {
+          btn.disabled = false;
+          btn.textContent = 'Current State';
+        }
+      });
+
+      document.querySelectorAll('.filter-btn').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const pass = btn.dataset.pass;
+          if (pass === 'all') {
+            document.querySelectorAll('.filter-btn[data-pass="Epic"], .filter-btn[data-pass="Ikon"], .filter-btn[data-pass="Other"]').forEach(b => b.classList.remove('active', 'epic', 'ikon', 'other'));
+            btn.classList.add('active');
+          } else {
+            document.querySelector('.filter-btn[data-pass="all"]').classList.remove('active');
+            btn.classList.toggle('active');
+            if (btn.dataset.pass) btn.classList.toggle(btn.dataset.pass.toLowerCase(), btn.classList.contains('active'));
+            const anyActive = [...document.querySelectorAll('.filter-btn[data-pass="Epic"], .filter-btn[data-pass="Ikon"], .filter-btn[data-pass="Other"]')].some(b => b.classList.contains('active'));
+            if (!anyActive) document.querySelector('.filter-btn[data-pass="all"]').classList.add('active');
+          }
+
+          const filtered = getFilteredResorts();
+          const state = document.getElementById('state-select').value;
+
+          renderResortCards(filtered);
+          updateMapAndList(filtered);
+
+          if (state && filtered.length > 0 && filtered.length <= 50) {
+            const needForecast = filtered.filter(r => !forecastCache.has(getResortKey(r)));
+            if (needForecast.length > 0) {
+              await loadForecastsForResorts(filtered);
+              renderResortCards(filtered);
+            }
+          }
+        });
+      });
+
+      const state = stateSelect.value;
+      if (state) {
+        listEl.innerHTML = '<div class="loading">Loading forecasts for ' + initialFiltered.length + ' resorts...</div>';
+        await loadForecastsForResorts(initialFiltered);
+        renderResortCards(initialFiltered);
+        updateMapAndList(initialFiltered);
+      }
+    }
+
+    init();
+  </script>
+</body>
+</html>
